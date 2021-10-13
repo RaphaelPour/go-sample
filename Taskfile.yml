@@ -1,0 +1,20 @@
+version: '2'
+output: 'prefixed'
+
+includes:
+  _: https://raw.githubusercontent.com/FasterArbeit/task/master/go.yml
+
+vars:
+  BINARY_NAME: 'go-sample'
+  REPOSITORY_NAME: 'go-sample'
+  PATH: 'github.com/RaphaelPour/go-sample'
+  DATE:
+    sh: date '+%Y-%m-%dT%H:%M:%S%z'
+  VERSION:
+    sh: git describe --tags || git describe --always
+
+tasks:
+  bin:
+    desc: Build the go binary
+    cmds:
+      - go build -a -ldflags "-X main.BuildDate={{.DATE}} -X main.BuildVersion={{.VERSION}} -extldflags '-static' -s -w" -o ci-build/{{.BINARY_NAME}}

@@ -17,6 +17,11 @@ const (
 	SILENCE = 0.0000003
 )
 
+var (
+	BuildDate    = "hello"
+	BuildVersion string
+)
+
 type Sampler struct {
 	/* open and ready to read input stream */
 	inputStream beep.Streamer
@@ -133,6 +138,13 @@ func IsSilence(sample [2]float64) bool {
 }
 
 func main() {
+
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println("BuildVersion: ", BuildVersion)
+		fmt.Println("BuildDate: ", BuildDate)
+		return
+	}
+
 	if len(os.Args) != 3 {
 		fmt.Println("usage: go-sample <recording> <out>")
 		return
