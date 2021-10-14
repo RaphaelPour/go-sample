@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math"
 	"os"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/wav"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -18,8 +20,11 @@ const (
 )
 
 var (
-	BuildDate    = "hello"
+	BuildDate    string
 	BuildVersion string
+
+	Version  = flag.Bool("version", false, "Show build information")
+	LogLevel = flag.String("log-level", "debug", "Level of the output log")
 )
 
 type Sampler struct {
@@ -63,7 +68,7 @@ func (s Sampler) Err() error {
 func (s *Sampler) Stream(samples [][2]float64) (int, bool) {
 	/* use buffer before reading from stream again */
 	if len(s.buffer) > 0 {
-		fmt.Printf("Using buffer from last time with length %d\n", len(s.buffer))
+		logrus.Debugf("Using buffer from last time with length %d\n", len(s.buffer))
 
 		/* TODO: Check if copy to samples is valid without allocation */
 		n := copy(samples, s.buffer)
@@ -82,14 +87,14 @@ func (s *Sampler) Stream(samples [][2]float64) (int, bool) {
 	}
 
 	if n == 0 {
-		fmt.Println("EOF reached")
+		logrus.Debugf("EOF reached")
 		s.EOF = true
 		return n, ok
 	}
 
 	var silenceDetected bool
 	var end int
-	fmt.Printf("Cycling through %d samples\n", len(samples))
+	logrus.Debugf("Cycling through %d samples\n", len(samples))
 	for i, sample := range samples {
 
 		if sample[LEFT] > s.Max {
@@ -112,7 +117,7 @@ func (s *Sampler) Stream(samples [][2]float64) (int, bool) {
 		// fmt.Println(sample)
 		if IsSilence(sample) {
 			if !silenceDetected {
-				fmt.Printf("detected silence @%d\n", i)
+				logrus.Debugf("detected silence @%d\n", i)
 				end = i
 				silenceDetected = true
 			}
@@ -138,56 +143,63 @@ func IsSilence(sample [2]float64) bool {
 }
 
 func main() {
+	flag.Parse()
 
-	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Println("BuildVersion: ", BuildVersion)
-		fmt.Println("BuildDate: ", BuildDate)
+	if *Version {
+		fmt.Printf("BuildDate: %s\n", BuildDate)
+		fmt.Printf("BuildVersion: %s\n", BuildVersion)
 		return
 	}
 
-	if len(os.Args) != 3 {
-		fmt.Println("usage: go-sample <recording> <out>")
-		return
-	}
-
-	if !strings.Contains(os.Args[2], "%d") {
-		fmt.Println("output file needs %d formatter")
-		return
-	}
-
-	inF, err := os.Open(os.Args[1])
+	level, err := logrus.ParseLevel(*LogLevel)
 	if err != nil {
-		fmt.Printf("error loading recording '%s': %s\n", os.Args[1], err)
+		logrus.Errorf("error parsing log level %s: %w", level, err)
+		return
+	}
+
+	logrus.SetLevel(level)
+
+	if flag.NArg() != 2 {
+		logrus.Error("usage: go-sample <recording> <out>")
+		return
+	}
+
+	if !strings.Contains(flag.Arg(1), "%d") {
+		logrus.Error("output file needs %d formatter")
+		return
+	}
+
+	inF, err := os.Open(flag.Arg(0))
+	if err != nil {
+		logrus.Errorf("error loading recording '%s': %s\n", flag.Arg(0), err)
 		return
 	}
 	defer inF.Close()
 
 	stream, format, err := wav.Decode(inF)
 	if err != nil {
-		fmt.Printf("error decoding recording '%s': %s\n", os.Args[1], err)
+		logrus.Errorf("error decoding recording '%s': %s\n", flag.Arg(0), err)
 		return
 	}
 	defer stream.Close()
 
 	sampler := NewSampler(stream)
 	for i := 0; !sampler.EOF && sampler.Err() == nil; i++ {
-		outFilename := fmt.Sprintf(os.Args[2], i)
-		fmt.Printf("NEW FILE %s\n", outFilename)
+		outFilename := fmt.Sprintf(flag.Arg(1), i)
+		logrus.Infof("NEW FILE %s\n", outFilename)
 		outF, err := os.Create(outFilename)
 		if err != nil {
-			fmt.Printf("error opening output file '%s': %s\n", outFilename, err)
+			logrus.Errorf("error opening output file '%s': %s\n", outFilename, err)
 			return
 		}
 		if err := wav.Encode(outF, sampler, format); err != nil {
-			fmt.Printf("error writing output file '%s': %s\n", outFilename, err)
+			logrus.Errorf("error writing output file '%s': %s\n", outFilename, err)
 			return
 		}
 		outF.Close()
 	}
 
-	fmt.Printf("Min: %f\n", sampler.Min)
-	fmt.Printf("Max: %f\n", sampler.Max)
-	fmt.Printf("Avg: %f\n", sampler.Sum/float64(sampler.N))
-
-	fmt.Println("ok")
+	logrus.Tracef("Min: %f\n", sampler.Min)
+	logrus.Tracef("Max: %f\n", sampler.Max)
+	logrus.Tracef("Avg: %f\n", sampler.Sum/float64(sampler.N))
 }
